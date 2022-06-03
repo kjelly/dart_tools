@@ -5,6 +5,13 @@ import 'package:easy_isolate/easy_isolate.dart';
 import 'package:args/args.dart';
 import 'package:logging/logging.dart';
 
+Future call(Future Function() func,
+    {Future Function()? before, Future Function()? after}) async {
+  if (before != null) await before();
+  await func();
+  if (after != null) await after();
+}
+
 int prefixRatio(String a, String b) {
   final al = a.length;
   final bl = b.length;
@@ -21,7 +28,10 @@ int prefixRatio(String a, String b) {
 Future main(List<String> args) async {
   var parser = ArgParser();
   parser.addMultiOption('ignore', abbr: 'i', help: 'ignore words');
-  parser.addOption('file', abbr: 'f', help: 'File to read', defaultsTo: '');
+  parser.addOption('file',
+      abbr: 'f',
+      help: 'File to read. If empty, read from stdin.',
+      defaultsTo: '');
   parser.addOption('dict', abbr: 'd', help: 'Dictionary file', defaultsTo: '');
   parser.addOption('start', abbr: 's', help: 'start', defaultsTo: '0');
   parser.addOption('start-column',
@@ -86,7 +96,7 @@ Future main(List<String> args) async {
 
   var remain = lines.length;
 
-  EasyIsolate removeRandomWordIsolate = EasyIsolate((args) {
+  EasyIsolate removeRandomWordIsolate = EasyIsolate((args) async {
     RegExp exp = RegExp(r'[a-zA-Z0-9]+');
     RegExp hasDigit = RegExp(r'[0-9]+');
     var line = args[0] as String;
@@ -97,19 +107,12 @@ Future main(List<String> args) async {
     for (var i in ignore) {
       line = line.replaceAll(i, '');
     }
+
     var stripString = line;
+    var job = 0;
     if (removeRandom) {
-      for (var m in exp.allMatches(line)) {
-        var matched = m.group(0)!.toLowerCase();
-        if (matched.toString().isEmpty) continue;
-        if (hasDigit.firstMatch(matched) != null) {
-          stripString = stripString.replaceAll(matched, '');
-          continue;
-        }
-        if (matched.length > 10) {
-          stripString = stripString.replaceAll(matched, '');
-          continue;
-        }
+      final isWordIsolate = EasyIsolate((args) async {
+        var matched = args[0] as String;
         var found = false;
         for (var word in dict) {
           if (ratio(matched, word) > randomThreshold) {
@@ -117,11 +120,34 @@ Future main(List<String> args) async {
             break;
           }
         }
-        if (!found) {
-          stripString = stripString.replaceAll(matched, '');
-        }
-      }
+        return found;
+      }, worker: worker);
+      await Stream.fromIterable(exp.allMatches(line)).listen((m) async {
+        await call(() async {
+          var matched = m.group(0)!.toLowerCase();
+          if (matched.isEmpty) {
+            return;
+          }
+          if (hasDigit.firstMatch(matched) != null) {
+            return;
+          }
+          if (matched.length > 10) {
+            return;
+          }
+          if (await isWordIsolate.call([matched])) {
+            stripString = stripString.replaceAll(matched, '');
+          }
+        }, before: () async {
+          job++;
+        }, after: () async {
+          job--;
+        });
+      }).asFuture();
     }
+    await Future.doWhile(() async {
+      await Future.delayed(Duration(milliseconds: 10));
+      return job > 0;
+    });
     return stripString;
   }, worker: worker);
 
@@ -140,15 +166,17 @@ Future main(List<String> args) async {
     return found;
   }, worker: worker);
 
-  Stream.fromIterable(lines).listen((oriLine) async {
-    String stripString = await removeRandomWordIsolate.call([oriLine]);
-    if (!await deRedundantIsolate.call([stripString, stripData, threshold])) {
-      data.add(oriLine);
-      stripData.add(stripString);
-    }
-
-    remain--;
-  });
+  await Stream.fromIterable(lines).listen((oriLine) async {
+    await call(() async {
+      String stripString = await removeRandomWordIsolate.call([oriLine]);
+      if (!await deRedundantIsolate.call([stripString, stripData, threshold])) {
+        data.add(oriLine);
+        stripData.add(stripString);
+      }
+    }, after: () async {
+      remain--;
+    });
+  }).asFuture();
 
   await Future.doWhile(() async {
     await Future.delayed(Duration(milliseconds: 100));

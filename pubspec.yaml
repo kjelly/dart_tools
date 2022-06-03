@@ -33,6 +33,9 @@ dependencies:
   nextcloud: ^3.0.2
   format: ^1.1.1
   fuzzywuzzy: ^0.1.7
+  logger: ^1.1.0
+  logging: ^1.0.2
+  alfred: ^0.1.5+3
 
 dev_dependencies:
   lints: ^1.0.0
