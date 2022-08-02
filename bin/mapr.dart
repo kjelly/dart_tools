@@ -134,10 +134,10 @@ void show(String command, ProcessResult p,
     if (!showError) {
       return;
     }
-    error = ' with error';
+    error = '❌';
   }
   if (header) {
-    print("cmd$error: $command\n");
+    print("cmd(${p.exitCode})$error: $command\n");
     if (stdout) {
       print("stdout:\n${p.stdout}\n");
     }
