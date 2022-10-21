@@ -37,13 +37,31 @@ class Document {
   final String filePath;
   MarkdownParser? parser;
   Document(this.filePath);
+  List<String> tags = [];
+
+  List<String> parseTags(String content) {
+    var re = RegExp("^|\\s#\\S+");
+    return re.allMatches(content).map((m) {
+      var v = m.group(0)!;
+      v = v.trim();
+      if(v.isNotEmpty && v[0] == "#") return v.substring(1);
+      return v;
+    }).where((v)=> v.isNotEmpty).toList();
+  }
 
   Future<List<SearchResult>> search(List<String> query, List<String> headers,
-      {bool color = false, bool regex = false}) async {
+      {bool color = false,
+      bool regex = false,
+      List<String> targetTags = const []}) async {
     if (parser == null) {
       parser = MarkdownParser();
       var data = await File(filePath).readAsString();
       parser?.parse(data);
+      tags = parseTags(data);
+    }
+    if (targetTags.isNotEmpty &&
+        !targetTags.map((t) => tags.contains(t)).reduce((a, b) => a && b)) {
+      return [];
     }
     return parser!
         .search(query, headers, color: color, regex: regex)
@@ -144,6 +162,14 @@ class MarkdownParser implements md.NodeVisitor {
                   .map((m) => m.group(0) ?? '')
                   .join('\n');
             }).join('\n');
+            highlighted = value
+                .split('\n')
+                .where((line) => patterns
+                    .map((p) => RegExp(p, dotAll: true, multiLine: true).hasMatch(line))
+                    .reduce((a, b) => a || b))
+                .join('\n')
+                .trim();
+
             ret.add(MarkdownSearchResult(
                 i, (jsonDecode(k) as List).cast<String>(), value, highlighted));
           }
@@ -153,7 +179,7 @@ class MarkdownParser implements md.NodeVisitor {
                 .split('\n')
                 .where((line) => patterns
                     .map((p) => line.contains(p))
-                    .reduce((a, b) => a && b))
+                    .reduce((a, b) => a || b))
                 .join('\n')
                 .trim();
             if (color) {
@@ -202,6 +228,7 @@ Future main(List<String> args) async {
       abbr: "f", defaultsTo: 'file: {file}\nheader: {header}\n{content}\n');
   parser.addMultiOption('pattern', abbr: "p", defaultsTo: ['']);
   parser.addMultiOption('header', abbr: "h", defaultsTo: []);
+  parser.addMultiOption('tag', abbr: "t", defaultsTo: []);
 
   var argResults = parser.parse(args);
   var dirPath = argResults['dir'] as String;
@@ -213,6 +240,7 @@ Future main(List<String> args) async {
   var separation = argResults['separation'] as String;
   var limit = int.tryParse(argResults['limit'] as String) ?? 0;
   var sortMode = argResults['sort'] as String;
+  var tags = argResults['tag'] as List<String>;
 
   var dir = Directory(dirPath);
   var terminalColumnSize = 128;
@@ -230,7 +258,7 @@ Future main(List<String> args) async {
       locker.lock();
       var document = Document(file.path);
       var query = patterns;
-      document.search(query, headers, color: color, regex: regex).then((r) {
+      document.search(query, headers, color: color, regex: regex, targetTags: tags).then((r) {
         results.addAll(r);
         locker.unlock();
       });
@@ -244,13 +272,15 @@ Future main(List<String> args) async {
       limit = results.length;
     }
     for (var r in results.sublist(0, limit)) {
-      print(outputFormat.format({
-            'file': r.file.replaceAll(dirPath, ''),
-            'header': r.headers,
-            'content': r.highlighted
-          }) +
-          '\n' +
-          separation * terminalColumnSize);
+      if (r.highlighted.trim() != '') {
+        print(outputFormat.format({
+              'file': r.file.replaceAll(dirPath, ''),
+              'header': r.headers,
+              'content': r.highlighted
+            }) +
+            '\n' +
+            separation * terminalColumnSize);
+      }
     }
   }, onError: (e) {
     print(e);
