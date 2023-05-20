@@ -28,6 +28,7 @@ void main(List<String> args) async {
   parser.addFlag('not', abbr: "n", defaultsTo: false);
   parser.addFlag('match-all-ok-pattern', defaultsTo: false);
   parser.addFlag('match-all-fail-pattern', defaultsTo: false);
+  parser.addFlag('check-status', defaultsTo: false);
 
   parser.addFlag('help', abbr: "h");
   var results = parser.parse(args);
@@ -49,6 +50,7 @@ void main(List<String> args) async {
   final tempFile = File("${dir.path}/wait-for");
   final matchAllOkPattern = results['match-all-ok-pattern'];
   final matchAllFailPattern = results['match-all-fail-pattern'];
+  final checkStatus = results['check-status'];
   tempFile.createSync();
 
   var ok = false;
@@ -66,12 +68,19 @@ void main(List<String> args) async {
 
   while (loop) {
     var processResult = shell(command);
-    if (processResult.exitCode != 0) {
+    var stdout = processResult.stdout as String;
+    var stderr = processResult.stderr as String;
+    if (checkStatus) {
+      if (processResult.exitCode == 0) {
+        break;
+      }
+
+    } else if (processResult.exitCode != 0) {
       ok |= false;
       break;
     }
-    var stdout = processResult.stdout as String;
     print(stdout);
+    print(stderr);
     for (var i in okString) {
       if (stdout.contains(i)) {
         ok |= true;
