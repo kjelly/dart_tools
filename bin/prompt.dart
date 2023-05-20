@@ -1,6 +1,15 @@
 import "dart:io";
 import "dart:async";
 import 'package:args/args.dart';
+import 'package:format/format.dart';
+import 'package:ansicolor/ansicolor.dart';
+
+class Command {
+  String program;
+  List<String> args;
+  String template;
+  Command(this.program, this.args, this.template);
+}
 
 void main(List<String> args) async {
   var parser = ArgParser(allowTrailingOptions: false);
@@ -8,33 +17,64 @@ void main(List<String> args) async {
       abbr: 'e', defaultsTo: '0', valueHelp: 'exit code');
   parser.addOption('duration',
       abbr: 'd', defaultsTo: '0', valueHelp: 'duration');
+  parser.addFlag('escape');
+
   var argResults = parser.parse(args);
   var env = Platform.environment;
-  var out = {
+  var func = {
+    "branch": Command("git", ["rev-parse", "--abbrev-ref", "HEAD"], "({})"),
+    "hostname": Command("hostname", [], "{}"),
+  };
+  var out1 = {
     "user": env["USER"],
     "path": env["PWD"]!.replaceAll(env["HOME"]!, "~"),
     "exit": argResults["exit_code"],
     "duration": argResults["duration"],
   };
-  Process.run("git", ["rev-parse", "--abbrev-ref", "HEAD"])
-      .then((ProcessResult results) {
-    if (results.exitCode != 0) {
-      out["branch"] = "";
-    } else {
-      out["branch"] = "(${results.stdout.trim()})";
-    }
-  });
-  Process.run("hostname", []).then((ProcessResult results) {
-    out["hostname"] = results.stdout.trim();
-  });
+  var out2 = {
+    "virtualenv": (env["VIRTUAL_ENV"] ?? "", "({virtualenv})"),
+  };
+  var line1Template =
+      "{user}@{hostname} {path} {branch} [{exit}] {duration}ms";
+  for (var i in func.keys) {
+    var key = i;
+    var template = func[key]!.template;
+    Process.run(func[key]!.program, func[key]!.args)
+        .then((ProcessResult results) {
+      if (results.exitCode != 0) {
+        out1[key] = "";
+      } else {
+        out1[key] = template.format(results.stdout.trim());
+      }
+    });
+  }
   var now = DateTime.now();
   await Future.doWhile(() async {
     await Future.delayed(Duration(milliseconds: 5));
     if (now.difference(DateTime.now()).inSeconds > 1) {
       return false;
     }
-    return out["branch"] == null || out["hostname"] == null;
-  }).then((_) => print(
-      "${out["user"]}@${out["hostname"]} ${out["path"]} "
-      "${out["branch"]} [${out['exit']}] ${out['duration']}ms"));
+    for (var i in func.keys) {
+      if (out1[i] == null) {
+        return true;
+      }
+    }
+    return false;
+  }).then((x) {
+    print(line1Template.format(out1));
+    var line2 = "";
+    for(var i in out2.keys){
+      var (value, template) = out2[i]!;
+      if(value.isNotEmpty){
+        line2 += template.format({i: value});
+      }
+
+      }
+    if (line2.isNotEmpty) {
+      if(argResults["escape"]){
+        print("\\n");
+        }
+      print(line2);
+    }
+  });
 }
