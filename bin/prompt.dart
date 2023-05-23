@@ -4,11 +4,11 @@ import 'package:args/args.dart';
 import 'package:format/format.dart';
 import 'package:ansicolor/ansicolor.dart';
 
-class Command {
+class Variable {
   String program;
   List<String> args;
   String template;
-  Command(this.program, this.args, this.template);
+  Variable(this.program, this.args, this.template);
 }
 
 void main(List<String> args) async {
@@ -22,20 +22,21 @@ void main(List<String> args) async {
   var argResults = parser.parse(args);
   var env = Platform.environment;
   var func = {
-    "branch": Command("git", ["rev-parse", "--abbrev-ref", "HEAD"], "({})"),
-    "hostname": Command("hostname", [], "{}"),
+    "branch": Variable("git", ["rev-parse", "--abbrev-ref", "HEAD"], "({})"),
+    "hostname": Variable("hostname", [], "{}"),
   };
   var out1 = {
     "user": env["USER"],
     "path": env["PWD"]!.replaceAll(env["HOME"]!, "~"),
     "exit": argResults["exit_code"],
+    "tmux": env["TMUX_PANE"] ?? "",
     "duration": argResults["duration"],
   };
   var out2 = {
     "virtualenv": (env["VIRTUAL_ENV"] ?? "", "({virtualenv})"),
   };
   var line1Template =
-      "{user}@{hostname} {path} {branch} [{exit}] {duration}ms";
+      "{user}@{hostname} {tmux} {path} {branch} [{exit}] {duration}ms";
   for (var i in func.keys) {
     var key = i;
     var template = func[key]!.template;
