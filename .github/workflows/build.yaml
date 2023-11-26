@@ -1,0 +1,19 @@
+# The name of the workflow which you can see when the action runs
+name: Build exe
+
+# This workflow is triggered on pushes to the repository.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Jobs will run in parallel
+jobs:
+  build-exe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Dart SDK
+        uses: dart-lang/setup-dart@v1
+      - run: dart pub get
+      - run: dart compile exe bin/kube.dart 
